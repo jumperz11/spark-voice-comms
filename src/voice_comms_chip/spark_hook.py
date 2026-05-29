@@ -268,19 +268,22 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
     target = LOCAL_KOKORO_TTS_PROVIDER
     unsupported_runtime = _kokoro_python_unsupported_message()
     if unsupported_runtime:
-        safe_error = _safe_hook_error_text(RuntimeError(unsupported_runtime), payload)
+        error_code = "voice_install_unsupported_runtime"
+        public_message = "Kokoro install is not supported in this Python runtime."
         return {
             "returncode": 1,
-            "stdout": "kokoro install unsupported",
-            "stderr": safe_error,
+            "stdout": "",
+            "stderr": public_message,
+            "error": public_message,
+            "error_code": error_code,
             "metrics": {"installed": 0, "already_installed": 0},
             "result": {
                 "reply_text": (
                     "Kokoro install cannot run in this Python runtime.\n"
-                    f"{safe_error}\n"
                     "Next: run Spark voice install from a Python 3.10-3.13 runtime, then retry `/voice install kokoro`."
                 ),
                 "target": target,
+                "error_code": error_code,
                 "python": _python_runtime_label(),
                 "installed": False,
                 "already_installed": False,

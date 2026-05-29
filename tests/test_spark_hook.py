@@ -385,7 +385,7 @@ def test_voice_install_faster_whisper_runs_local_pip_when_missing():
 
 
 def test_voice_install_kokoro_reports_unsupported_python_runtime():
-    message = "kokoro-onnx currently requires Python <3.14. Use a Python 3.10-3.13 runtime."
+    message = "kokoro-onnx failed from /tmp/private-runtime with sk-live-secret and traceback detail."
 
     with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=message), patch(
         "voice_comms_chip.spark_hook.subprocess.run",
@@ -393,13 +393,21 @@ def test_voice_install_kokoro_reports_unsupported_python_runtime():
         result = handle_voice_install_hook({"target": "kokoro"})
 
     assert result["returncode"] == 1
-    assert result["stdout"] == "kokoro install unsupported"
-    assert result["stderr"] == message
+    assert result["stdout"] == ""
+    assert result["stderr"] == "Kokoro install is not supported in this Python runtime."
+    assert result["error"] == result["stderr"]
+    assert result["error_code"] == "voice_install_unsupported_runtime"
     assert result["metrics"]["installed"] == 0
+    assert result["result"]["error_code"] == "voice_install_unsupported_runtime"
     assert result["result"]["installed"] is False
     assert result["result"]["kokoro_ready"] is False
     assert "cannot run in this Python runtime" in result["result"]["reply_text"]
     assert "Python 3.10-3.13" in result["result"]["reply_text"]
+    encoded = json.dumps(result)
+    assert message not in encoded
+    assert "/tmp/private-runtime" not in encoded
+    assert "sk-live-secret" not in encoded
+    assert "traceback" not in encoded.lower()
     run.assert_not_called()
 
 
