@@ -294,10 +294,10 @@ def test_voice_install_kokoro_runs_local_pip_when_missing():
         assert check is False
         return SimpleNamespace(returncode=0, stdout="installed ok\n", stderr="")
 
-    with patch("voice_comms_chip.spark_hook._local_kokoro_package_available", side_effect=[False, True, True]), patch(
-        "voice_comms_chip.spark_hook.subprocess.run",
-        side_effect=fake_run,
-    ):
+    with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+        "voice_comms_chip.spark_hook._local_kokoro_package_available",
+        side_effect=[False, True, True],
+    ), patch("voice_comms_chip.spark_hook.subprocess.run", side_effect=fake_run):
         result = handle_voice_install_hook({"target": "kokoro"})
 
     assert result["returncode"] == 0
@@ -314,7 +314,10 @@ def test_voice_install_kokoro_runs_local_pip_when_missing():
 
 
 def test_voice_install_kokoro_skips_pip_when_already_installed():
-    with patch("voice_comms_chip.spark_hook._local_kokoro_package_available", return_value=True), patch(
+    with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+        "voice_comms_chip.spark_hook._local_kokoro_package_available",
+        return_value=True,
+    ), patch(
         "voice_comms_chip.spark_hook.subprocess.run",
     ) as run:
         result = handle_voice_install_hook({"target": "kokoro"})
@@ -339,7 +342,10 @@ def test_voice_install_kokoro_sees_model_assets_from_process_env(tmp_path):
             "VOICE_TTS_KOKORO_VOICES_PATH": str(voices_path),
         },
         clear=False,
-    ), patch("voice_comms_chip.spark_hook._local_kokoro_package_available", return_value=True), patch(
+    ), patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+        "voice_comms_chip.spark_hook._local_kokoro_package_available",
+        return_value=True,
+    ), patch(
         "voice_comms_chip.spark_hook.subprocess.run",
     ) as run:
         result = handle_voice_install_hook({"target": "kokoro"})
@@ -378,6 +384,25 @@ def test_voice_install_faster_whisper_runs_local_pip_when_missing():
     assert "send one short Telegram voice note" in result["result"]["reply_text"]
 
 
+def test_voice_install_kokoro_reports_unsupported_python_runtime():
+    message = "kokoro-onnx currently requires Python <3.14. Use a Python 3.10-3.13 runtime."
+
+    with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=message), patch(
+        "voice_comms_chip.spark_hook.subprocess.run",
+    ) as run:
+        result = handle_voice_install_hook({"target": "kokoro"})
+
+    assert result["returncode"] == 1
+    assert result["stdout"] == "kokoro install unsupported"
+    assert result["stderr"] == message
+    assert result["metrics"]["installed"] == 0
+    assert result["result"]["installed"] is False
+    assert result["result"]["kokoro_ready"] is False
+    assert "cannot run in this Python runtime" in result["result"]["reply_text"]
+    assert "Python 3.10-3.13" in result["result"]["reply_text"]
+    run.assert_not_called()
+
+
 def test_voice_install_local_stack_installs_stt_and_kokoro_packages():
     calls: list[list[str]] = []
 
@@ -385,7 +410,10 @@ def test_voice_install_local_stack_installs_stt_and_kokoro_packages():
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout="installed ok\n", stderr="")
 
-    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", side_effect=[False, True]), patch(
+    with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+        "voice_comms_chip.spark_hook._local_faster_whisper_available",
+        side_effect=[False, True],
+    ), patch(
         "voice_comms_chip.spark_hook._local_kokoro_package_available",
         side_effect=[False, True, True],
     ), patch("voice_comms_chip.spark_hook._local_kokoro_ready", return_value=False), patch(
@@ -402,6 +430,31 @@ def test_voice_install_local_stack_installs_stt_and_kokoro_packages():
     assert "faster-whisper>=1.0" in calls[0]
     assert "kokoro-onnx>=0.5.0" in calls[1]
     assert "`/voice onboard local`" in result["result"]["reply_text"]
+
+
+def test_voice_install_local_stack_keeps_partial_result_when_kokoro_runtime_is_unsupported():
+    calls: list[list[str]] = []
+    message = "kokoro-onnx currently requires Python <3.14. Use a Python 3.10-3.13 runtime."
+
+    def fake_run(command, *, capture_output: bool, text: bool, timeout: int, check: bool):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="installed ok\n", stderr="")
+
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", side_effect=[False, True]), patch(
+        "voice_comms_chip.spark_hook._kokoro_python_unsupported_message",
+        return_value=message,
+    ), patch("voice_comms_chip.spark_hook.subprocess.run", side_effect=fake_run):
+        result = handle_voice_install_hook({"target": "local"})
+
+    assert result["returncode"] == 1
+    assert result["stdout"] == "local_install_partial"
+    assert result["result"]["stt_ready"] is True
+    assert result["result"]["kokoro_installed"] is False
+    assert result["result"]["kokoro"]["installed"] is False
+    assert result["result"]["kokoro"]["kokoro_ready"] is False
+    assert result["result"]["kokoro"]["reply_text"].startswith("Kokoro install cannot run")
+    assert len(calls) == 1
+    assert "faster-whisper>=1.0" in calls[0]
 
 
 def test_voice_onboard_reports_paid_provider_readiness(tmp_path):

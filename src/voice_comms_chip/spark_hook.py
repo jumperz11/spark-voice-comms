@@ -265,8 +265,27 @@ def handle_voice_install_hook(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
     target = LOCAL_KOKORO_TTS_PROVIDER
-    if sys.version_info >= (3, 14):
-        raise RuntimeError("kokoro-onnx currently requires Python <3.14. Use a Python 3.10-3.13 runtime.")
+    unsupported_runtime = _kokoro_python_unsupported_message()
+    if unsupported_runtime:
+        return {
+            "returncode": 1,
+            "stdout": "kokoro install unsupported",
+            "stderr": unsupported_runtime,
+            "metrics": {"installed": 0, "already_installed": 0},
+            "result": {
+                "reply_text": (
+                    "Kokoro install cannot run in this Python runtime.\n"
+                    f"{unsupported_runtime}\n"
+                    "Next: run Spark voice install from a Python 3.10-3.13 runtime, then retry `/voice install kokoro`."
+                ),
+                "target": target,
+                "python": sys.executable,
+                "installed": False,
+                "already_installed": False,
+                "kokoro_ready": False,
+                "pip_tail": [],
+            },
+        }
     was_ready = _local_kokoro_package_available()
     if was_ready:
         install_status = "already_installed"
@@ -550,6 +569,12 @@ def _faster_whisper_install_reply_text(*, install_status: str, stt_ready: bool) 
             "Restart the Spark runtime if needed, then rerun `/voice install faster-whisper`.",
         ]
     )
+
+
+def _kokoro_python_unsupported_message() -> str | None:
+    if sys.version_info >= (3, 14):
+        return "kokoro-onnx currently requires Python <3.14. Use a Python 3.10-3.13 runtime."
+    return None
 
 
 def _voice_preference_note(payload: dict[str, Any]) -> dict[str, str]:
