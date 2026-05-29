@@ -66,6 +66,7 @@ ENV_OPENAI_REALTIME_REASONING_EFFORT = "VOICE_TTS_OPENAI_REALTIME_REASONING_EFFO
 ENV_OPENAI_REALTIME_INSTRUCTIONS = "VOICE_TTS_OPENAI_REALTIME_INSTRUCTIONS"
 ENV_OPENAI_REALTIME_TIMEOUT_SECONDS = "VOICE_TTS_OPENAI_REALTIME_TIMEOUT_SECONDS"
 ENV_RUNTIME_STATE_PATH = "SPARK_VOICE_RUNTIME_STATE_PATH"
+MAX_HOOK_INPUT_BYTES = 1_000_000
 DEFAULT_KOKORO_VOICE = "af_sarah"
 DEFAULT_KOKORO_LANG = "en-us"
 VOICE_ENV_KEYS = {
@@ -267,19 +268,20 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
     target = LOCAL_KOKORO_TTS_PROVIDER
     unsupported_runtime = _kokoro_python_unsupported_message()
     if unsupported_runtime:
+        safe_error = _safe_hook_error_text(RuntimeError(unsupported_runtime), payload)
         return {
             "returncode": 1,
             "stdout": "kokoro install unsupported",
-            "stderr": unsupported_runtime,
+            "stderr": safe_error,
             "metrics": {"installed": 0, "already_installed": 0},
             "result": {
                 "reply_text": (
                     "Kokoro install cannot run in this Python runtime.\n"
-                    f"{unsupported_runtime}\n"
+                    f"{safe_error}\n"
                     "Next: run Spark voice install from a Python 3.10-3.13 runtime, then retry `/voice install kokoro`."
                 ),
                 "target": target,
-                "python": sys.executable,
+                "python": _python_runtime_label(),
                 "installed": False,
                 "already_installed": False,
                 "kokoro_ready": False,
@@ -301,7 +303,7 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
         ]
         completed = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
         pip_output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
-        pip_tail = _tail_nonempty_lines(pip_output, limit=8)
+        pip_tail = _safe_install_tail(pip_output, payload=payload, limit=8)
         if completed.returncode != 0:
             return {
                 "returncode": 1,
@@ -315,7 +317,7 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
                         "Next: check the local package error, then rerun `/voice install kokoro`."
                     ),
                     "target": target,
-                    "python": sys.executable,
+                    "python": _python_runtime_label(),
                     "installed": False,
                     "already_installed": False,
                     "pip_tail": pip_tail,
@@ -334,7 +336,7 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
         "result": {
             "reply_text": reply_text,
             "target": target,
-            "python": sys.executable,
+            "python": _python_runtime_label(),
             "installed": is_ready,
             "already_installed": was_ready,
             "kokoro_ready": kokoro_ready,
@@ -358,7 +360,7 @@ def _install_faster_whisper() -> dict[str, Any]:
         ]
         completed = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
         pip_output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
-        pip_tail = _tail_nonempty_lines(pip_output, limit=8)
+        pip_tail = _safe_install_tail(pip_output, limit=8)
         if completed.returncode != 0:
             return {
                 "returncode": 1,
@@ -372,7 +374,7 @@ def _install_faster_whisper() -> dict[str, Any]:
                         "Next: check the local package error, then rerun `/voice install faster-whisper`."
                     ),
                     "target": "faster-whisper",
-                    "python": sys.executable,
+                    "python": _python_runtime_label(),
                     "installed": False,
                     "already_installed": False,
                     "stt_ready": False,
@@ -389,7 +391,7 @@ def _install_faster_whisper() -> dict[str, Any]:
         "result": {
             "reply_text": _faster_whisper_install_reply_text(install_status=install_status, stt_ready=is_ready),
             "target": "faster-whisper",
-            "python": sys.executable,
+            "python": _python_runtime_label(),
             "installed": is_ready,
             "already_installed": was_ready,
             "stt_ready": is_ready,
@@ -431,7 +433,7 @@ def _install_local_voice_stack(payload: dict[str, Any]) -> dict[str, Any]:
         "result": {
             "reply_text": "\n".join(reply_lines),
             "target": "local",
-            "python": sys.executable,
+            "python": _python_runtime_label(),
             "installed": bool(stt_ready and kokoro_installed),
             "stt_ready": stt_ready,
             "kokoro_installed": kokoro_installed,
@@ -1324,6 +1326,48 @@ def _tail_nonempty_lines(text: str, *, limit: int) -> list[str]:
     return [line for line in lines if line][-limit:]
 
 
+def _safe_install_tail(text: str, *, payload: dict[str, Any] | None = None, limit: int) -> list[str]:
+    safe_text = _safe_hook_error_text(RuntimeError(text), payload)
+    return _tail_nonempty_lines(safe_text, limit=limit)
+
+
+def _python_runtime_label() -> str:
+    return f"python {sys.version_info.major}.{sys.version_info.minor}"
+
+
+def _collect_redaction_values(payload: dict[str, Any] | None = None) -> list[str]:
+    values: list[str] = []
+    for key in VOICE_ENV_KEYS | {"OPENAI_API_KEY", "ELEVENLABS_API_KEY"}:
+        value = str(os.environ.get(key) or "").strip()
+        if value:
+            values.append(value)
+    executable = str(sys.executable or "").strip()
+    if executable:
+        values.append(executable)
+        values.append(str(Path(executable).parent))
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if not isinstance(value, str) or not value:
+                continue
+            lowered = key.lower()
+            if any(token in lowered for token in ("secret", "token", "api_key", "password", "env_file_path", "path")):
+                values.append(value)
+        env_file_path = str(payload.get("builder_env_file_path") or "").strip()
+        if env_file_path:
+            try:
+                values.extend(value for value in _read_env_map(env_file_path=env_file_path).values() if value)
+            except Exception:
+                pass
+    return sorted(set(values), key=len, reverse=True)
+
+
+def _safe_hook_error_text(exc: Exception, payload: dict[str, Any] | None = None) -> str:
+    text = " ".join((str(exc) or exc.__class__.__name__).split())
+    for value in _collect_redaction_values(payload):
+        text = text.replace(value, "[redacted]")
+    return text[:1000]
+
+
 def _resolve_fallback_mode(payload: dict[str, Any]) -> str | None:
     mode = str(payload.get("fallback_mode") or "").strip().lower()
     if not mode:
@@ -2081,6 +2125,30 @@ def _write_output(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _load_hook_payload(path: Path) -> dict[str, Any]:
+    raw = path.read_bytes()
+    if len(raw) > MAX_HOOK_INPUT_BYTES:
+        raise ValueError("Voice hook input is too large.")
+    payload = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError("Voice hook input must be a JSON object.")
+    return payload
+
+
+def _hook_error_payload(exc: Exception, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    detail = _safe_hook_error_text(exc, payload)
+    return {
+        "returncode": 1,
+        "stdout": "",
+        "stderr": detail,
+        "metrics": {},
+        "result": {},
+        "error": detail,
+        "error_type": exc.__class__.__name__,
+        "redaction": "hook failure detail is bounded and redacted; raw env/config values are omitted",
+    }
+
+
 def _public_runtime_state(runtime_state: dict[str, Any]) -> dict[str, Any]:
     stt = runtime_state.get("stt") if isinstance(runtime_state.get("stt"), dict) else {}
     tts = runtime_state.get("tts") if isinstance(runtime_state.get("tts"), dict) else {}
@@ -2152,8 +2220,9 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    payload = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
+    payload: dict[str, Any] | None = None
     try:
+        payload = _load_hook_payload(Path(args.input))
         if args.hook == "voice.status":
             result = handle_voice_status_hook(payload)
         elif args.hook == "voice.plan":
@@ -2167,17 +2236,7 @@ def main() -> int:
         else:
             result = handle_voice_transcribe_hook(payload)
     except Exception as exc:
-        _write_output(
-            Path(args.output),
-            {
-                "returncode": 1,
-                "stdout": "",
-                "stderr": str(exc),
-                "metrics": {},
-                "result": {},
-                "error": str(exc),
-            },
-        )
+        _write_output(Path(args.output), _hook_error_payload(exc, payload))
         return 1
 
     _export_runtime_state_if_configured(result)

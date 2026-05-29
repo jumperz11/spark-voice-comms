@@ -403,6 +403,33 @@ def test_voice_install_kokoro_reports_unsupported_python_runtime():
     run.assert_not_called()
 
 
+def test_voice_install_kokoro_redacts_failed_pip_output(tmp_path):
+    env_file = tmp_path / ".env"
+    env_secret = "env-secret-value-for-pip-redaction"
+    env_file.write_text(f"OPENAI_API_KEY={env_secret}\n", encoding="utf-8")
+
+    def fake_run(command, *, capture_output: bool, text: bool, timeout: int, check: bool):
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=f"failed with {env_secret} from {env_file} via {sys.executable}\n",
+        )
+
+    with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+        "voice_comms_chip.spark_hook._local_kokoro_package_available",
+        return_value=False,
+    ), patch("voice_comms_chip.spark_hook.subprocess.run", side_effect=fake_run):
+        result = handle_voice_install_hook({"target": "kokoro", "builder_env_file_path": str(env_file)})
+
+    encoded = json.dumps(result)
+    assert result["returncode"] == 1
+    assert "[redacted]" in result["stderr"]
+    assert result["result"]["python"].startswith("python ")
+    assert env_secret not in encoded
+    assert str(env_file) not in encoded
+    assert sys.executable not in encoded
+
+
 def test_voice_install_local_stack_installs_stt_and_kokoro_packages():
     calls: list[list[str]] = []
 
@@ -523,6 +550,86 @@ def test_cli_main_accepts_utf8_sig_payload(tmp_path):
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert exit_code == 0
     assert payload["result"]["recommended_path"] == "local_free"
+
+
+def test_cli_main_writes_structured_error_for_invalid_json(tmp_path):
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    input_path.write_text("{not-json", encoding="utf-8")
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "spark_hook",
+            "voice.install",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+        ],
+    ):
+        exit_code = main()
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert payload["returncode"] == 1
+    assert payload["error_type"] == "JSONDecodeError"
+    assert payload["result"] == {}
+
+
+def test_cli_main_writes_structured_error_for_non_object_payload(tmp_path):
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    input_path.write_text("[]", encoding="utf-8")
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "spark_hook",
+            "voice.install",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+        ],
+    ):
+        exit_code = main()
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert payload["error"] == "Voice hook input must be a JSON object."
+    assert payload["stderr"] == payload["error"]
+    assert payload["error_type"] == "ValueError"
+
+
+def test_cli_main_rejects_oversized_hook_input_before_install_execution(tmp_path):
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    input_path.write_text('{"padding":"' + ("x" * 1_000_001) + '"}', encoding="utf-8")
+
+    with patch.object(
+        sys,
+        "argv",
+        [
+            "spark_hook",
+            "voice.install",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+        ],
+    ), patch(
+        "voice_comms_chip.spark_hook.handle_voice_install_hook",
+        side_effect=AssertionError("oversized input should not execute install hook"),
+    ):
+        exit_code = main()
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert payload["error"] == "Voice hook input is too large."
+    assert payload["result"] == {}
 
 
 def test_cli_main_exports_sanitized_runtime_state(tmp_path):
