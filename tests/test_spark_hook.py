@@ -93,6 +93,32 @@ def test_voice_status_marks_custom_provider_as_unverified(tmp_path):
     assert "custom provider transcription compatibility is not verified yet" in result["result"]["reason"]
 
 
+def test_voice_status_missing_env_file_keeps_local_fallback_ready_signal():
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False):
+        result = handle_voice_status_hook({"builder_env_file_path": "/tmp/private/spark-missing/.env"})
+
+    assert result["returncode"] == 0
+    assert result["result"]["ready"] is False
+    assert result["result"]["model"] == "tiny"
+    assert "local faster-whisper transcription is the default Telegram voice path" in result["result"]["reason"]
+    assert "Voice chip is not ready yet." in result["result"]["reply_text"]
+
+
+def test_voice_status_redacts_missing_env_file_path_in_provider_reason():
+    missing_path = "/tmp/private/spark-missing/.env"
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False), patch.dict(
+        "os.environ",
+        {"VOICE_TRANSCRIBE_PROVIDER": "openai"},
+        clear=False,
+    ):
+        result = handle_voice_status_hook({"builder_env_file_path": missing_path})
+
+    assert result["returncode"] == 0
+    assert result["result"]["ready"] is False
+    assert missing_path not in result["result"]["reason"]
+    assert "[redacted]" in result["result"]["reason"]
+
+
 def test_voice_status_reports_local_ready_before_custom_provider_warning(tmp_path):
     model_path = tmp_path / "kokoro-v1.0.onnx"
     voices_path = tmp_path / "voices-v1.0.bin"

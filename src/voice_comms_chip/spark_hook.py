@@ -955,8 +955,8 @@ def _build_voice_status(payload: dict[str, Any]) -> dict[str, Any]:
                 provider_note = (
                     "Custom provider transcription compatibility is not verified yet, so local faster-whisper will be used."
                 )
-        except Exception as exc:
-            provider_note = f"Hosted transcription provider is not configured; local faster-whisper will be used. Detail: {exc}"
+        except Exception:
+            provider_note = "Hosted transcription provider is not configured; local faster-whisper will be used."
         return {
             "ready": True,
             "local_ready": True,
@@ -985,7 +985,7 @@ def _build_voice_status(payload: dict[str, Any]) -> dict[str, Any]:
             "tts_ready": bool(active_tts_status["ready"]),
             "tts_provider_id": str(active_tts_status["provider"]),
             "tts_status": str(active_tts_status["status"]),
-            "reason": str(exc),
+            "reason": _safe_hook_error_text(exc, payload),
             "provider_id": None,
             "provider_kind": None,
             "model": None,
@@ -1325,6 +1325,14 @@ def _runtime_env_map(*, env_file_path: str | None = None) -> dict[str, str]:
     if env_file_path:
         env_map.update({key: value for key, value in _read_env_map(env_file_path=env_file_path).items() if value})
     return env_map
+
+
+def _safe_runtime_env_map(payload: dict[str, Any]) -> dict[str, str]:
+    env_file_path = str(payload.get("builder_env_file_path") or "").strip()
+    try:
+        return _runtime_env_map(env_file_path=env_file_path or None)
+    except Exception:
+        return _process_voice_env_map()
 
 
 def _tail_nonempty_lines(text: str, *, limit: int) -> list[str]:
@@ -1955,47 +1963,35 @@ def _local_kokoro_ready(*, env_map: dict[str, str]) -> bool:
 
 
 def _resolve_local_faster_whisper_model(payload: dict[str, Any]) -> str:
-    env_file_path = str(payload.get("builder_env_file_path") or "").strip()
-    if env_file_path:
-        env_map = _runtime_env_map(env_file_path=env_file_path)
-        configured = str(env_map.get("VOICE_TRANSCRIBE_LOCAL_MODEL") or "").strip()
-        if configured:
-            return configured
+    configured = str(_safe_runtime_env_map(payload).get("VOICE_TRANSCRIBE_LOCAL_MODEL") or "").strip()
+    if configured:
+        return configured
     return "tiny"
 
 
 def _resolve_local_faster_whisper_language(payload: dict[str, Any]) -> str | None:
-    env_file_path = str(payload.get("builder_env_file_path") or "").strip()
-    if env_file_path:
-        env_map = _runtime_env_map(env_file_path=env_file_path)
-        configured = str(env_map.get("VOICE_TRANSCRIBE_LOCAL_LANGUAGE") or "").strip()
-        if configured:
-            return configured
+    configured = str(_safe_runtime_env_map(payload).get("VOICE_TRANSCRIBE_LOCAL_LANGUAGE") or "").strip()
+    if configured:
+        return configured
     return None
 
 
 def _resolve_local_faster_whisper_vad_filter(payload: dict[str, Any]) -> bool:
-    env_file_path = str(payload.get("builder_env_file_path") or "").strip()
-    if env_file_path:
-        env_map = _runtime_env_map(env_file_path=env_file_path)
-        configured = str(env_map.get("VOICE_TRANSCRIBE_LOCAL_VAD_FILTER") or "").strip().lower()
-        if configured in {"1", "true", "yes", "on"}:
-            return True
-        if configured in {"0", "false", "no", "off"}:
-            return False
+    configured = str(_safe_runtime_env_map(payload).get("VOICE_TRANSCRIBE_LOCAL_VAD_FILTER") or "").strip().lower()
+    if configured in {"1", "true", "yes", "on"}:
+        return True
+    if configured in {"0", "false", "no", "off"}:
+        return False
     return True
 
 
 def _resolve_local_faster_whisper_beam_size(payload: dict[str, Any]) -> int:
-    env_file_path = str(payload.get("builder_env_file_path") or "").strip()
-    if env_file_path:
-        env_map = _runtime_env_map(env_file_path=env_file_path)
-        configured = str(env_map.get("VOICE_TRANSCRIBE_LOCAL_BEAM_SIZE") or "").strip()
-        if configured:
-            try:
-                return max(1, int(configured))
-            except ValueError:
-                pass
+    configured = str(_safe_runtime_env_map(payload).get("VOICE_TRANSCRIBE_LOCAL_BEAM_SIZE") or "").strip()
+    if configured:
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            pass
     return 5
 
 

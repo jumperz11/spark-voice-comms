@@ -1,0 +1,101 @@
+{
+  "schema": "spark-compete-hotfix-v1",
+  "event": "spark-compete-first-event",
+  "submission_mode": "public_repo_pr",
+  "submission_target_url": "https://github.com/vibeforge1111/spark-voice-comms/pull/19",
+  "team": {
+    "name": "JUMPERZ",
+    "members": [
+      "JUMPERZ",
+      "Basjee01",
+      "acexqt"
+    ],
+    "llm_device_holder": "JUMPERZ",
+    "device_holder_github": "https://github.com/jumperz11",
+    "github_accounts": [
+      "jumperz11"
+    ]
+  },
+  "target_repo": {
+    "id": "vibeforge1111/spark-voice-comms",
+    "source": "https://compete.sparkswarm.ai/allowed-repos.json",
+    "owner_surface": "voice status and local transcription readiness boundary"
+  },
+  "issue": {
+    "type": "bug",
+    "severity": "medium",
+    "title": "voice.status can fail or expose env path when builder env file is missing",
+    "actual_behavior": "When payload includes builder_env_file_path that does not exist, local STT model resolution can raise before status response is formed, and hosted provider readiness fallback can return reason text with the raw missing file path.",
+    "expected_behavior": "voice.status should always return a stable readiness response and should redact raw env-file paths from reason text.",
+    "repro_steps": [
+      "Call voice.status with builder_env_file_path set to a non-existent path while local faster-whisper is unavailable.",
+      "Observe pre-fix behavior can raise ValueError from env-map read during local model resolution.",
+      "Set VOICE_TRANSCRIBE_PROVIDER=openai with the same missing env path and observe pre-fix hosted reason echoes the raw path."
+    ],
+    "affected_workflow": "voice.status readiness checks and onboarding-safe diagnostics"
+  },
+  "evidence": {
+    "safe_links_only": true,
+    "before_after_proof": "Before: missing builder env file could trigger status failure path and reason text could include raw local path. After: env-map reads fall back safely and reason text is redacted.",
+    "links": [
+      "https://github.com/vibeforge1111/spark-voice-comms/pull/19"
+    ],
+    "forbidden": [
+      "pdf",
+      "zip",
+      "exe",
+      "unknown downloads",
+      "shortened links",
+      "archives",
+      "binaries",
+      "tokens",
+      "browser cookies",
+      "wallet material",
+      "raw logs",
+      "raw conversations",
+      "raw memory",
+      "raw patches",
+      "private repo maps",
+      "private scoring details"
+    ]
+  },
+  "proposed_fix": {
+    "approach": "Use payload-safe env-map fallback for local faster-whisper config resolution and redact provider resolution errors in voice.status fallback messaging.",
+    "files_expected": [
+      "src/voice_comms_chip/spark_hook.py",
+      "tests/test_spark_hook.py",
+      "docs/spark-compete-hotfix-voice-status-missing-env-file.json"
+    ],
+    "tests_or_smoke": "PYTHONPATH=src python -m pytest tests/test_spark_hook.py -q -k 'missing_env_file_keeps_local_fallback_ready_signal or redacts_missing_env_file_path_in_provider_reason'; python -m pytest -q"
+  },
+  "pr": {
+    "branch": "codex/voice-install-kokoro-python314-structured-error",
+    "title_prefix": "[spark-compete]",
+    "author_github": "jumperz11",
+    "body_must_include": [
+      "packet",
+      "team",
+      "pr_author",
+      "repo",
+      "actual_behavior",
+      "expected_behavior",
+      "repro_steps",
+      "before_after_proof",
+      "tests_or_smoke",
+      "duplicate_notes",
+      "risk_notes",
+      "review_claim"
+    ],
+    "url": "https://github.com/vibeforge1111/spark-voice-comms/pull/19"
+  },
+  "review_claim": {
+    "impact_claim": "medium",
+    "evidence_types": [
+      "repro_test",
+      "passing_test"
+    ],
+    "duplicate_notes": "Live duplicate scan for new PR comments was blocked in this runtime by GitHub DNS/auth failures, and local review ledger still tracks #19 as open with no new code-action comment beyond existing follow-up proof threads.",
+    "risk_notes": "Change is limited to safe env-map fallback and status reason redaction for missing env-file paths; no provider transport, Telegram routing, identity, or memory authority changed.",
+    "review_state_requested": "pr_review"
+  }
+}
