@@ -818,8 +818,9 @@ def handle_voice_transcribe_hook(payload: dict[str, Any]) -> dict[str, Any]:
             )
         except Exception as exc:
             if fallback_mode == "deterministic":
+                safe_reason = _safe_fallback_reason(exc, payload)
                 return _with_transcribe_runtime_state(
-                    _deterministic_transcribe_response(audio_bytes=audio_bytes, filename=filename, reason=str(exc)),
+                    _deterministic_transcribe_response(audio_bytes=audio_bytes, filename=filename, reason=safe_reason),
                     payload=payload,
                     audio_bytes=len(audio_bytes),
                     started_at=transcribe_started,
@@ -860,13 +861,15 @@ def handle_voice_transcribe_hook(payload: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception as exc:
         if fallback_mode == "deterministic":
+            safe_reason = _safe_fallback_reason(exc, payload)
             return _with_transcribe_runtime_state(
-                _deterministic_transcribe_response(audio_bytes=audio_bytes, filename=filename, reason=str(exc)),
+                _deterministic_transcribe_response(audio_bytes=audio_bytes, filename=filename, reason=safe_reason),
                 payload=payload,
                 audio_bytes=len(audio_bytes),
                 started_at=transcribe_started,
             )
         if _local_faster_whisper_available():
+            safe_reason = _safe_fallback_reason(exc, payload)
             transcript_text = _transcribe_with_local_faster_whisper(
                 payload=payload,
                 audio_bytes=audio_bytes,
@@ -886,7 +889,7 @@ def handle_voice_transcribe_hook(payload: dict[str, Any]) -> dict[str, Any]:
                     "provider_id": "local_faster_whisper",
                     "model": _resolve_local_faster_whisper_model(payload),
                     "mode": "local_faster_whisper",
-                    "fallback_reason": str(exc),
+                    "fallback_reason": safe_reason,
                 },
             }, payload=payload, audio_bytes=len(audio_bytes), started_at=transcribe_started)
         raise
@@ -1405,6 +1408,10 @@ def _deterministic_transcribe_response(*, audio_bytes: bytes, filename: str, rea
             "fallback_reason": reason,
         },
     }
+
+
+def _safe_fallback_reason(reason: Exception | str, payload: dict[str, Any]) -> str:
+    return _safe_hook_error_text(RuntimeError(str(reason)), payload)
 
 
 def _with_transcribe_runtime_state(

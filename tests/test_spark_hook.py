@@ -790,6 +790,44 @@ def test_voice_transcribe_can_return_deterministic_fallback_when_requested(tmp_p
     assert "simulated provider outage" in result["result"]["fallback_reason"]
 
 
+def test_voice_transcribe_deterministic_fallback_redacts_secret_like_error_details(tmp_path):
+    secret_value = "env-secret-value-for-fallback-redaction"
+    payload = _payload(
+        tmp_path,
+        audio_base64=base64.b64encode(b"fake-ogg-bytes").decode("ascii"),
+        filename="telegram-voice.ogg",
+        mime_type="audio/ogg",
+        fallback_mode="deterministic",
+    )
+    env_file = Path(payload["builder_env_file_path"])
+    env_file.write_text(
+        "\n".join(
+            [
+                f"OPENAI_API_KEY={secret_value}",
+                "VOICE_TRANSCRIBE_PROVIDER=openai",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    unsafe_reason = f"provider outage with {secret_value} from {env_file} via {sys.executable}"
+
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False), patch(
+        "voice_comms_chip.spark_hook.urllib.request.urlopen",
+        side_effect=RuntimeError(unsafe_reason),
+    ):
+        result = handle_voice_transcribe_hook(payload)
+
+    encoded = json.dumps(result)
+    assert result["returncode"] == 0
+    assert result["result"]["mode"] == "deterministic_fallback"
+    assert "[redacted]" in result["result"]["fallback_reason"]
+    assert "[redacted]" in result["result"]["transcript_text"]
+    assert secret_value not in encoded
+    assert str(env_file) not in encoded
+    assert sys.executable not in encoded
+
+
 def test_voice_transcribe_can_fallback_to_local_faster_whisper_when_provider_fails(tmp_path):
     payload = _payload(
         tmp_path,
