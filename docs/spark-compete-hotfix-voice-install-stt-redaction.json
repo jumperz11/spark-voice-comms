@@ -1,0 +1,101 @@
+{
+  "schema": "spark-compete-hotfix-v1",
+  "event": "spark-compete-first-event",
+  "submission_mode": "public_repo_pr",
+  "submission_target_url": "https://github.com/vibeforge1111/spark-voice-comms/pull/19",
+  "team": {
+    "name": "JUMPERZ",
+    "members": [
+      "JUMPERZ",
+      "Basjee01",
+      "acexqt"
+    ],
+    "llm_device_holder": "JUMPERZ",
+    "device_holder_github": "https://github.com/jumperz11",
+    "github_accounts": [
+      "jumperz11"
+    ]
+  },
+  "target_repo": {
+    "id": "vibeforge1111/spark-voice-comms",
+    "source": "https://compete.sparkswarm.ai/allowed-repos.json",
+    "owner_surface": "voice chip command/runtime boundary"
+  },
+  "issue": {
+    "type": "bug",
+    "severity": "medium",
+    "title": "voice.install STT failure path can leak secret-like install text",
+    "actual_behavior": "When /voice install faster-whisper fails, returned stderr tail can include raw secret-like values, filesystem paths, and runtime path details because payload-bound redaction values are not wired into the STT install sanitization path.",
+    "expected_behavior": "voice.install failures should always redact payload/env-derived sensitive values before returning diagnostic text.",
+    "repro_steps": [
+      "Prepare a temp builder env file containing a fake API key value.",
+      "Call voice.install with target=faster-whisper and builder_env_file_path set, while patching subprocess.run to fail with stderr containing the fake key and env-file path.",
+      "Observe failure output before patch can include unredacted secret/path values."
+    ],
+    "affected_workflow": "voice.install faster-whisper and voice.install local (STT sub-step)"
+  },
+  "evidence": {
+    "safe_links_only": true,
+    "before_after_proof": "Before: STT install failure output could echo secret/path/runtime values. After: failure output is routed through payload-aware redaction and returns only bounded redacted diagnostics.",
+    "links": [
+      "https://github.com/vibeforge1111/spark-voice-comms/pull/19"
+    ],
+    "forbidden": [
+      "pdf",
+      "zip",
+      "exe",
+      "unknown downloads",
+      "shortened links",
+      "archives",
+      "binaries",
+      "tokens",
+      "browser cookies",
+      "wallet material",
+      "raw logs",
+      "raw conversations",
+      "raw memory",
+      "raw patches",
+      "private repo maps",
+      "private scoring details"
+    ]
+  },
+  "proposed_fix": {
+    "approach": "Thread hook payload into faster-whisper installer and local-stack STT path, then sanitize pip stderr tails with payload-aware redaction before exposing them in hook outputs.",
+    "files_expected": [
+      "src/voice_comms_chip/spark_hook.py",
+      "tests/test_spark_hook.py",
+      "docs/spark-compete-hotfix-voice-install-stt-redaction.json"
+    ],
+    "tests_or_smoke": "PYTHONPATH=src python -m pytest tests/test_spark_hook.py -q -k 'faster_whisper_redacts_failed_pip_output or local_stack_redacts_stt_install_error_details'; python -m pytest -q"
+  },
+  "pr": {
+    "branch": "codex/voice-install-kokoro-python314-structured-error",
+    "title_prefix": "[spark-compete]",
+    "author_github": "jumperz11",
+    "body_must_include": [
+      "packet",
+      "team",
+      "pr_author",
+      "repo",
+      "actual_behavior",
+      "expected_behavior",
+      "repro_steps",
+      "before_after_proof",
+      "tests_or_smoke",
+      "duplicate_notes",
+      "risk_notes",
+      "review_claim"
+    ],
+    "url": "https://github.com/vibeforge1111/spark-voice-comms/pull/19"
+  },
+  "review_claim": {
+    "impact_claim": "medium",
+    "evidence_types": [
+      "repro_test",
+      "passing_test"
+    ],
+    "duplicate_notes": "Live PR duplicate scan was blocked in this run by network transport; latest verified PR snapshot in automation memory at 2026-05-30T11:31:25Z showed no duplicate comment for this install-path leak.",
+    "risk_notes": "Change is limited to install-error redaction plumbing and tests; no provider selection, routing, identity, or Telegram transport behavior was widened.",
+    "review_state_requested": "pr_review"
+  }
+}

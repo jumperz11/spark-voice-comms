@@ -256,7 +256,7 @@ def handle_voice_install_hook(payload: dict[str, Any]) -> dict[str, Any]:
     if target in {"local", "local-voice", "local-stack", "local-voice-stack"}:
         return _install_local_voice_stack(payload)
     if target in {"stt", "local-stt", "transcription", "transcribe", "whisper", "faster-whisper"}:
-        return _install_faster_whisper()
+        return _install_faster_whisper(payload)
     if target in {"local-tts", "kokoro-onnx"}:
         target = LOCAL_KOKORO_TTS_PROVIDER
     if target != LOCAL_KOKORO_TTS_PROVIDER:
@@ -348,7 +348,7 @@ def _install_kokoro(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _install_faster_whisper() -> dict[str, Any]:
+def _install_faster_whisper(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     was_ready = _local_faster_whisper_available()
     if was_ready:
         install_status = "already_installed"
@@ -363,7 +363,7 @@ def _install_faster_whisper() -> dict[str, Any]:
         ]
         completed = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
         pip_output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
-        pip_tail = _safe_install_tail(pip_output, limit=8)
+        pip_tail = _safe_install_tail(pip_output, payload=payload, limit=8)
         if completed.returncode != 0:
             return {
                 "returncode": 1,
@@ -404,7 +404,7 @@ def _install_faster_whisper() -> dict[str, Any]:
 
 
 def _install_local_voice_stack(payload: dict[str, Any]) -> dict[str, Any]:
-    stt = _install_faster_whisper()
+    stt = _install_faster_whisper(payload)
     kokoro = _install_kokoro(payload)
     ok = stt.get("returncode") == 0 and kokoro.get("returncode") == 0
     stt_result = stt.get("result") if isinstance(stt.get("result"), dict) else {}

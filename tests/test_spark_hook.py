@@ -384,6 +384,32 @@ def test_voice_install_faster_whisper_runs_local_pip_when_missing():
     assert "send one short Telegram voice note" in result["result"]["reply_text"]
 
 
+def test_voice_install_faster_whisper_redacts_failed_pip_output(tmp_path):
+    env_file = tmp_path / ".env"
+    env_secret = "env-secret-value-for-stt-pip-redaction"
+    env_file.write_text(f"OPENAI_API_KEY={env_secret}\n", encoding="utf-8")
+
+    def fake_run(command, *, capture_output: bool, text: bool, timeout: int, check: bool):
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=f"failed with {env_secret} from {env_file} via {sys.executable}\n",
+        )
+
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False), patch(
+        "voice_comms_chip.spark_hook.subprocess.run",
+        side_effect=fake_run,
+    ):
+        result = handle_voice_install_hook({"target": "faster-whisper", "builder_env_file_path": str(env_file)})
+
+    encoded = json.dumps(result)
+    assert result["returncode"] == 1
+    assert "[redacted]" in result["stderr"]
+    assert env_secret not in encoded
+    assert str(env_file) not in encoded
+    assert sys.executable not in encoded
+
+
 def test_voice_install_kokoro_reports_unsupported_python_runtime():
     message = "kokoro-onnx failed from /tmp/private-runtime with sk-live-secret and traceback detail."
 
@@ -490,6 +516,38 @@ def test_voice_install_local_stack_keeps_partial_result_when_kokoro_runtime_is_u
     assert result["result"]["kokoro"]["reply_text"].startswith("Kokoro install cannot run")
     assert len(calls) == 1
     assert "faster-whisper>=1.0" in calls[0]
+
+
+def test_voice_install_local_stack_redacts_stt_install_error_details(tmp_path):
+    env_file = tmp_path / ".env"
+    env_secret = "env-secret-value-for-local-stt-redaction"
+    env_file.write_text(f"OPENAI_API_KEY={env_secret}\n", encoding="utf-8")
+
+    def fake_run(command, *, capture_output: bool, text: bool, timeout: int, check: bool):
+        if "faster-whisper>=1.0" in command:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr=f"failed with {env_secret} from {env_file} via {sys.executable}\n",
+            )
+        return SimpleNamespace(returncode=0, stdout="installed ok\n", stderr="")
+
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False), patch(
+        "voice_comms_chip.spark_hook._kokoro_python_unsupported_message",
+        return_value="kokoro-onnx currently requires Python <3.14.",
+    ), patch(
+        "voice_comms_chip.spark_hook.subprocess.run",
+        side_effect=fake_run,
+    ):
+        result = handle_voice_install_hook({"target": "local", "builder_env_file_path": str(env_file)})
+
+    encoded = json.dumps(result)
+    assert result["returncode"] == 1
+    assert result["stdout"] == "local_install_partial"
+    assert "[redacted]" in result["stderr"]
+    assert env_secret not in encoded
+    assert str(env_file) not in encoded
+    assert sys.executable not in encoded
 
 
 def test_voice_onboard_reports_paid_provider_readiness(tmp_path):
