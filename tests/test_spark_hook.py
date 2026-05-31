@@ -1147,6 +1147,45 @@ def test_voice_speak_uses_telegram_compatible_opus_for_telegram_surface(tmp_path
     assert captured["body"]["text"] == "Telegram voice note reply."
 
 
+def test_voice_speak_redacts_telegram_delivery_failure_reason(tmp_path):
+    def fake_urlopen(request, timeout: int = 30):
+        return _FakeBinaryHttpResponse(b"fake-mpeg-bytes")
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                f"ELEVENLABS_API_KEY={FAKE_ELEVENLABS_KEY}",
+                f"VOICE_TTS_ELEVENLABS_VOICE_ID={FAKE_ELEVENLABS_VOICE_ID}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    raw_failure = f"sendVoice failed for key {FAKE_ELEVENLABS_KEY} using env {env_file}"
+
+    with patch("voice_comms_chip.spark_hook.urllib.request.urlopen", side_effect=fake_urlopen):
+        result = handle_voice_speak_hook(
+            {
+                "builder_env_file_path": str(env_file),
+                "text": "Operator status update.",
+                "telegram_delivery": {
+                    "status": "failed",
+                    "failure_reason": raw_failure,
+                },
+            }
+        )
+
+    failure_reason = result["result"]["delivery_trace"]["failure_reason"]
+    runtime_reason = result["result"]["runtime_state"]["telegram_delivery"]["last_failure_reason"]
+    assert failure_reason
+    assert "[redacted]" in failure_reason
+    assert FAKE_ELEVENLABS_KEY not in failure_reason
+    assert str(env_file) not in failure_reason
+    assert runtime_reason == failure_reason
+    assert result["result"]["delivery_trace"]["failure_stage"] == "host_delivery"
+
+
 def test_voice_speak_supports_local_pyttsx3_tts(tmp_path):
     captured: dict[str, object] = {}
 

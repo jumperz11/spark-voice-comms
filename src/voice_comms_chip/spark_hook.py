@@ -760,6 +760,10 @@ def handle_voice_speak_hook(payload: dict[str, Any]) -> dict[str, Any]:
         **payload,
         "latency": _merge_latency(payload.get("latency"), synthesize_ms=synthesize_ms),
     }
+    runtime_payload["telegram_delivery"] = _safe_telegram_delivery_payload(
+        runtime_payload.get("telegram_delivery"),
+        payload=payload,
+    )
     runtime_state = state_from_speak(
         request=request,
         resolved_voice_id=resolved_voice_id,
@@ -1420,6 +1424,23 @@ def _deterministic_transcribe_response(*, audio_bytes: bytes, filename: str, rea
 
 def _safe_fallback_reason(reason: Exception | str, payload: dict[str, Any]) -> str:
     return _safe_hook_error_text(RuntimeError(str(reason)), payload)
+
+
+def _safe_telegram_delivery_payload(
+    delivery: Any,
+    *,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(delivery, dict):
+        return {}
+    safe_delivery = dict(delivery)
+    raw_reason = str(delivery.get("last_failure_reason") or delivery.get("failure_reason") or "").strip()
+    if not raw_reason:
+        return safe_delivery
+    safe_reason = _safe_hook_error_text(RuntimeError(raw_reason), payload)
+    safe_delivery["last_failure_reason"] = safe_reason
+    safe_delivery["failure_reason"] = safe_reason
+    return safe_delivery
 
 
 def _with_transcribe_runtime_state(
