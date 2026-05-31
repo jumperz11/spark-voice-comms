@@ -1077,8 +1077,11 @@ def test_voice_speak_uses_profile_default_elevenlabs_voice(tmp_path):
 
     headers = {str(key).lower(): value for key, value in captured["headers"].items()}
     assert result["returncode"] == 0
+    assert result["stdout"] == "elevenlabs:fake...e-id"
     assert result["result"]["provider_id"] == "elevenlabs"
-    assert result["result"]["voice_id"] == FAKE_ELEVENLABS_VOICE_ID
+    assert result["result"]["voice_id"] == "fake...e-id"
+    assert result["result"]["voice_id_masked"] == "fake...e-id"
+    assert result["result"]["voice_id_fingerprint"] == "a8caa573ef6c"
     assert result["result"]["model_id"] == "eleven_turbo_v2_5"
     assert base64.b64decode(result["result"]["audio_base64"].encode("ascii")) == b"fake-mpeg-bytes"
     assert result["result"]["delivery_trace"]["synthesis_status"] == "success"
@@ -1392,9 +1395,12 @@ def test_voice_speak_supports_openai_gpt_realtime_2(tmp_path):
         assert wav_file.getsampwidth() == 2
         assert wav_file.readframes(2) == b"\x00\x00\x01\x00"
     assert result["returncode"] == 0
+    assert result["stdout"] == "openai-realtime:co...f39fd9"
     assert result["result"]["provider_id"] == "openai-realtime"
     assert result["result"]["model_id"] == "gpt-realtime-2"
-    assert result["result"]["voice_id"] == "coral"
+    assert result["result"]["voice_id"] == "co...f39fd9"
+    assert result["result"]["voice_id_masked"] == "co...f39fd9"
+    assert result["result"]["voice_id_fingerprint"] == "f39fd9073457"
     assert result["result"]["mime_type"] == "audio/wav"
     assert result["result"]["voice_compatible"] is False
     assert captured["url"] == "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
@@ -1455,6 +1461,9 @@ def test_voice_speak_retries_with_fallback_voice_when_primary_voice_is_missing(t
         )
 
     assert result["returncode"] == 0
-    assert result["result"]["voice_id"] == "fallback-voice-id"
+    assert result["stdout"] == "elevenlabs:fall...e-id"
+    assert result["result"]["voice_id"] == "fall...e-id"
+    assert result["result"]["voice_id_masked"] == "fall...e-id"
+    assert result["result"]["voice_id_fingerprint"] == "6c18418f62f9"
     assert base64.b64decode(result["result"]["audio_base64"].encode("ascii")) == b"fallback-mpeg-bytes"
     assert any(url.endswith("/voices") for url in calls)

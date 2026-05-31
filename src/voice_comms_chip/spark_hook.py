@@ -771,16 +771,17 @@ def handle_voice_speak_hook(payload: dict[str, Any]) -> dict[str, Any]:
         profile_summary=profile_summary,
         payload=runtime_payload,
     )
+    public_voice_id = str(runtime_state["tts"].get("voice_id_masked") or "")
+    public_voice_id_fingerprint = str(runtime_state["tts"].get("voice_id_fingerprint") or "")
     delivery_trace = _build_speak_delivery_trace(
         request=request,
-        resolved_voice_id=resolved_voice_id,
         audio_bytes=audio_bytes,
         runtime_state=runtime_state,
     )
     coherence = _build_speak_coherence(request=request, payload=payload)
     return {
         "returncode": 0,
-        "stdout": f"{request['provider_id']}:{resolved_voice_id}",
+        "stdout": f"{request['provider_id']}:{public_voice_id}",
         "stderr": "",
         "metrics": {
             "audio_bytes": len(audio_bytes),
@@ -789,7 +790,9 @@ def handle_voice_speak_hook(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "result": {
             "provider_id": request["provider_id"],
-            "voice_id": resolved_voice_id,
+            "voice_id": public_voice_id,
+            "voice_id_masked": public_voice_id,
+            "voice_id_fingerprint": public_voice_id_fingerprint,
             "model_id": request["model_id"],
             "mime_type": request["mime_type"],
             "filename": f"voice-reply-{uuid4().hex[:8]}{request['file_extension']}",
@@ -1139,7 +1142,6 @@ def _active_tts_status(*, env_map: dict[str, str], local_tts_status: dict[str, A
 def _build_speak_delivery_trace(
     *,
     request: dict[str, Any],
-    resolved_voice_id: str,
     audio_bytes: bytes,
     runtime_state: dict[str, Any],
 ) -> dict[str, Any]:
