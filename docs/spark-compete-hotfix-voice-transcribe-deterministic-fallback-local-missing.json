@@ -1,0 +1,100 @@
+{
+  "schema": "spark-compete-hotfix-v1",
+  "event": "spark-compete-first-event",
+  "submission_mode": "public_repo_pr",
+  "submission_target_url": "https://github.com/vibeforge1111/spark-voice-comms/pulls",
+  "team": {
+    "name": "JUMPERZ",
+    "members": [
+      "JUMPERZ",
+      "Basjee01",
+      "acexqt"
+    ],
+    "llm_device_holder": "JUMPERZ",
+    "device_holder_github": "https://github.com/jumperz11",
+    "github_accounts": [
+      "jumperz11"
+    ]
+  },
+  "target_repo": {
+    "id": "vibeforge1111/spark-voice-comms",
+    "source": "https://github.com/vibeforge1111/spark-voice-comms",
+    "owner_surface": "spark-voice-comms"
+  },
+  "issue": {
+    "type": "bug",
+    "severity": "medium",
+    "title": "voice.transcribe deterministic fallback smoke fails when local STT is unavailable",
+    "actual_behavior": "`voice.transcribe` with `fallback_mode=deterministic` still raises a local STT missing error when `faster_whisper` is unavailable in `auto/local` mode, so the documented deterministic smoke path fails.",
+    "expected_behavior": "When `fallback_mode=deterministic` is requested, `voice.transcribe` should return deterministic fallback output even if local faster-whisper is unavailable, without making hosted-provider calls.",
+    "repro_steps": [
+      "Run `PYTHONPATH=src python -m voice_comms_chip.spark_hook voice.transcribe --input examples/voice_transcribe_fallback.json --output <tmp>` on a machine without `faster_whisper`.",
+      "Before fix: returncode is 1 with `Local faster-whisper transcription is the default ... not installed`.",
+      "After fix: returncode is 0 with `mode=deterministic_fallback` and a bounded fallback reason."
+    ],
+    "affected_workflow": "voice.transcribe deterministic fallback smoke and degraded/offline operator validation"
+  },
+  "evidence": {
+    "safe_links_only": true,
+    "before_after_proof": "Before: deterministic fallback example returned a missing faster-whisper error. After: the same example returns deterministic fallback transcript and no hosted transcription call.",
+    "links": [
+      "https://github.com/vibeforge1111/spark-voice-comms/pulls"
+    ],
+    "forbidden": [
+      "pdf",
+      "zip",
+      "exe",
+      "unknown downloads",
+      "shortened links",
+      "archives",
+      "binaries",
+      "tokens",
+      "browser cookies",
+      "wallet material",
+      "raw logs",
+      "raw conversations",
+      "raw memory",
+      "raw patches",
+      "private repo maps",
+      "private scoring details"
+    ]
+  },
+  "proposed_fix": {
+    "approach": "In the local-STT unavailable branch, return deterministic fallback response when `fallback_mode=deterministic` instead of raising the local-missing ValueError. Add regression test ensuring no hosted call is attempted.",
+    "files_expected": [
+      "src/voice_comms_chip/spark_hook.py",
+      "tests/test_spark_hook.py"
+    ],
+    "tests_or_smoke": "python -m pytest -q tests/test_spark_hook.py -k 'deterministic_fallback or voice_transcribe_prefers_local_faster_whisper_without_openai_call_when_available or voice_transcribe_uses_local_by_default_and_does_not_silently_fallback_to_hosted_when_local_missing'; PYTHONPATH=src python -m voice_comms_chip.spark_hook voice.transcribe --input examples/voice_transcribe_fallback.json --output <tmp>; python -m py_compile src/voice_comms_chip/spark_hook.py tests/test_spark_hook.py"
+  },
+  "pr": {
+    "branch": "codex/voice-speak-delivery-reason-redaction",
+    "title_prefix": "[spark-compete]",
+    "author_github": "jumperz11",
+    "body_must_include": [
+      "packet",
+      "team",
+      "pr_author",
+      "repo",
+      "actual_behavior",
+      "expected_behavior",
+      "repro_steps",
+      "before_after_proof",
+      "tests_or_smoke",
+      "duplicate_notes",
+      "risk_notes",
+      "review_claim"
+    ],
+    "url": "https://github.com/vibeforge1111/spark-voice-comms/pulls"
+  },
+  "review_claim": {
+    "impact_claim": "medium",
+    "evidence_types": [
+      "repro_test",
+      "passing_test"
+    ],
+    "duplicate_notes": "Checked active JUMPERZ PRs #19/#20/#21 and their maintainer feedback on 2026-06-01; none address deterministic fallback behavior when local STT is missing.",
+    "risk_notes": "Change is limited to fallback behavior in the local-missing transcribe branch and one focused regression test. No provider secret handling, Telegram routing, memory policy, or identity logic changed.",
+    "review_state_requested": "pr_review"
+  }
+}

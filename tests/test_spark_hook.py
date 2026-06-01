@@ -874,6 +874,27 @@ def test_voice_transcribe_can_return_deterministic_fallback_when_requested(tmp_p
     assert "simulated provider outage" in result["result"]["fallback_reason"]
 
 
+def test_voice_transcribe_deterministic_fallback_when_local_stt_is_unavailable(tmp_path):
+    payload = _payload(
+        tmp_path,
+        audio_base64=base64.b64encode(b"fake-ogg-bytes").decode("ascii"),
+        filename="telegram-voice.ogg",
+        mime_type="audio/ogg",
+        fallback_mode="deterministic",
+    )
+
+    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=False), patch(
+        "voice_comms_chip.spark_hook.urllib.request.urlopen",
+        side_effect=AssertionError("hosted transcription should not be called"),
+    ):
+        result = handle_voice_transcribe_hook(payload)
+
+    assert result["returncode"] == 0
+    assert result["result"]["mode"] == "deterministic_fallback"
+    assert "Local faster-whisper is unavailable" in result["result"]["fallback_reason"]
+    assert "Deterministic fallback transcript" in result["result"]["transcript_text"]
+
+
 def test_voice_transcribe_deterministic_fallback_redacts_secret_like_error_details(tmp_path):
     secret_value = "env-secret-value-for-fallback-redaction"
     payload = _payload(
